@@ -1,0 +1,96 @@
+name: Build latest enhanced rbw
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: build-release
+  cancel-in-progress: false
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Resolve latest enhanced branch
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(git ls-remote https://github.com/rylos/rbw.git refs/heads/enhanced | cut -f1)
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+  build:
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install native musl compiler and current stable Rust
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Test and build static binaries
+        run: ./build-static-rbw.sh
+        env:
+          ARCH: ${{ matrix.arch }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+          BUILDER_SHA: ${{ github.sha }}
+      - name: Report known dependency advisories
+        if: matrix.arch == 'amd64'
+        run: |
+          python3 scan-dependencies.py work/source/Cargo.lock dist
+          cat dist/dependency-report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rbw-${{ matrix.arch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.txt
+            dist/dependency-report.*
+          if-no-files-found: error
+          retention-days: 7
+  release:
+    needs: [source, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish immutable per-run release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+          BUILDER_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="git-${SOURCE_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cd dist
+          sha256sum ./*.tar.gz ./*.txt ./dependency-report.* > SHA256SUMS
+          {
+            printf 'Built from [rylos/rbw enhanced @ %s](https://github.com/rylos/rbw/commit/%s).\n\n' "$SOURCE_SHA" "$SOURCE_SHA"
+            printf 'Builder: `%s`. Both binaries use musl; default clipboard/TUI features are included.\n\n' "$BUILDER_SHA"
+            printf '**Known dependency advisories may be present. Read the report below before installing.**\n\n'
+            cat dependency-report.md
+          } > release-notes.md
+          gh release create "$tag" ./*.tar.gz ./*.txt ./dependency-report.* SHA256SUMS \
+            --target "$BUILDER_SHA" --latest --title "rbw enhanced ${SOURCE_SHA:0:12}" --notes-file release-notes.md
