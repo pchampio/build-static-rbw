@@ -4,6 +4,7 @@ set -euo pipefail
 # The workflow resolves enhanced once; both architectures build the same commit.
 SOURCE_REPO=https://github.com/rylos/rbw.git
 SOURCE_BRANCH=enhanced
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 WORK_DIR=${WORK_DIR:-"$PWD/work"}
 DIST_DIR=${DIST_DIR:-"$PWD/dist"}
 case "${ARCH:-$(uname -m)}" in
@@ -26,6 +27,10 @@ git -C "$source_dir" fetch --depth=1 origin "$source_sha"
 git -C "$source_dir" checkout --detach FETCH_HEAD
 [[ $(git -C "$source_dir" rev-parse HEAD) == "$source_sha" ]]
 cd "$source_dir"
+for patch in "$SCRIPT_DIR"/patches/*.patch; do
+    git apply --check "$patch"
+    git apply "$patch"
+done
 rustup target add "$target"
 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
@@ -46,13 +51,17 @@ for binary in rbw rbw-agent; do
 done
 "target/$target/release/rbw" --version
 install -m644 LICENSE Cargo.lock "$package/"
+mkdir -p "$package/patches"
+cp "$SCRIPT_DIR"/patches/*.patch "$package/patches/"
 {
     printf 'repository=%s\nbranch=%s\ncommit=%s\ntarget=%s\n' "$SOURCE_REPO" "$SOURCE_BRANCH" "$source_sha" "$target"
     rustc --version
     cargo --version
     printf 'cargo_lock_sha256='
     sha256sum Cargo.lock | cut -d' ' -f1
+    printf 'patch_sha256 (see bundled patches/):\n'
+    (cd "$SCRIPT_DIR" && sha256sum patches/*.patch)
     printf 'builder_commit=%s\n' "${BUILDER_SHA:-unknown}"
 } > "$package/BUILD-INFO.txt"
-tar -C "$package" -czf "$DIST_DIR/rbw-enhanced-linux-$arch.tar.gz" rbw rbw-agent LICENSE Cargo.lock BUILD-INFO.txt
+tar -C "$package" -czf "$DIST_DIR/rbw-enhanced-linux-$arch.tar.gz" rbw rbw-agent LICENSE Cargo.lock BUILD-INFO.txt patches
 cp "$package/BUILD-INFO.txt" "$DIST_DIR/BUILD-INFO-$arch.txt"

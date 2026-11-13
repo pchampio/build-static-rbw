@@ -1,0 +1,13 @@
+diff --git a/src/locked.rs b/src/locked.rs
+--- a/src/locked.rs
++++ b/src/locked.rs
+@@ -74,6 +74,9 @@ impl Drop for Vec {
+     fn drop(&mut self) {
+         self.zero();
+         self.data.as_mut().zeroize();
++        // Release the lock while the backing allocation is still mapped.
++        // Fields drop in declaration order: data would otherwise go first.
++        drop(self._lock.take());
+     }
+ }
+ 

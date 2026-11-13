@@ -1,6 +1,6 @@
 # build-static-rbw
 
-Build the latest **[rylos/rbw enhanced branch](https://github.com/rylos/rbw/tree/enhanced)** as static Linux amd64 and arm64 binaries. Each archive contains `rbw` and `rbw-agent`, with the default TUI and clipboard features, upstream MIT license, upstream Cargo.lock, and BUILD-INFO.txt.
+Build the latest **[rylos/rbw enhanced branch](https://github.com/rylos/rbw/tree/enhanced)** as static Linux amd64 and arm64 binaries. Each archive contains `rbw` and `rbw-agent`, with the default TUI and clipboard features, upstream MIT license, upstream Cargo.lock, applied build patches, and BUILD-INFO.txt.
 
 ## Build a release
 
@@ -11,6 +11,8 @@ gh workflow run build.yml --repo pchampio/build-static-rbw
 ```
 
 Pushing to main also builds a release. There is no timer. Every run resolves the current enhanced branch once and uses the same full commit on both architectures. This does not follow upstream release tags. Tests and static ELF checks must pass on both architectures before publication. Each run publishes a unique release and marks it latest; previous releases remain available for rollback. Re-running the same source still creates a new release.
+
+One small [build patch](patches/0001-unlock-before-free.patch) releases the memory-lock guard before freeing its backing allocation. Without it, the fork's attachment encryption test panics under musl on both architectures. The build verifies patch applicability, applies it explicitly, and records/bundles its hash. Future upstream changes that conflict with the patch fail the build rather than silently omitting it. No tests are skipped.
 
 The build uses current stable Rust and `cargo --locked`: upstream dependency versions are preserved. Each release includes source and builder commits, compiler versions, lockfile hash, SHA256SUMS, and a fresh OSV dependency advisory report. Checksums detect corruption; they are not independent signatures or a security guarantee. The report covers the entire lockfile, including optional/platform dependencies, without establishing reachability. **Advisory matches are visible but do not block publication.** A failed OSV request does block publication, so a release cannot silently omit its report.
 
