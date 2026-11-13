@@ -27,3 +27,9 @@ Reviewed source: [rylos/rbw enhanced, 6ca8ae724ce7aea718a91fff3a34b268d9fcff4d](
 ## Suggested migration posture
 
 Keep pinentry-based password unlocking and avoid remember-password, PIN, system_auth and auto_unlock unless their local security model is acceptable. Keep a finite lock timeout. Use HTTPS and trusted server configuration. Resolve/assess the dependency advisories, including the fork-added lru issue, before relying on this for valuable secrets. Consider reviewing each new source commit before triggering a build. The installer change only changes the release source; it does not enable the optional security features, install PAM/polkit rules, run the binary, or migrate/unlock a vault.
+
+## Build validation
+
+[Workflow run 43421949687](https://github.com/pchampio/build-static-rbw/actions/runs/43421949687) passed after applying the memory-lock patch: 62 tests passed on each native architecture (8 library + 54 CLI; none skipped), and both release binaries passed static ELF checks. The published amd64 archive and advisory report passed their release checksum checks. The actual dotfiles installer was exercised in an isolated temporary HOME; both installed binaries matched the verified archive. Version output and zsh completion generation were also checked. These tests do not exercise a real vault, interactive desktop integrations, or all security properties.
+
+The initial compilation logs confirm rustls, rustls-webpki, rsa, crypto-bigint, lru, tokio and rustix are compiled in this configuration; quinn-proto was not compiled. Compiling an affected crate still does not establish reachability of its vulnerable functions.
